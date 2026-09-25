@@ -7,13 +7,7 @@
   vars:
     ca_name: "Shaw Lannix Private CA"
     dns_names: "step-ca.default.svc.cluster.local.home.arpa"
-    ca_password: !vault |
-          $ANSIBLE_VAULT;1.2;AES256;V5RXy%vU^KYyiMDi
-          64663236663166636130383134623637363830663836323233336636393363333864386339356666
-          3565653564393064363961633137316164303164366538390a343937323263636162616261336438
-          64316338663930373061393666663933643731646264333839373062623833653538636333373338
-          6561636235333866660a653265653263356665633233353636666261636261633437663034656232
-          6664
+    ca_password: "{{ lookup('env', 'STEP_CA_PASSWORD') | default(vault_ca_password | default(omit)) }}"
     # Standardize AWX environment variables and force ignore local TLS validation
     k8s_host: "{{ lookup('env', 'K8S_AUTH_HOST') | default(lookup('env', 'KUBERNETES_MASTER') | default(omit)) }}"
     k8s_token: "{{ lookup('env', 'K8S_AUTH_API_KEY') | default(lookup('env', 'KUBERNETES_TOKEN') | default(omit)) }}"
