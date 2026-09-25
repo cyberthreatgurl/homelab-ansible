@@ -1,0 +1,62 @@
+---
+- name: Bootstrap Pi-hole Node for Least-Privilege Ansible
+  hosts: pihole_servers
+  remote_user: kelly
+  become: true
+  vars:
+    ansible_controller_ip: "10.0.0.115"
+    # admin_users comes from inventory/group_vars/all.yml. Each key gets
+    # the same "from=<controller-ip>" source restriction the single key
+    # used to have.
+    admin_authorized_keys: >-
+      {{ admin_users | map(attribute='key')
+         | map('regex_replace', '^(.*)$', 'from="' + ansible_controller_ip + '" \1')
+         | join('\n') }}
+
+  tasks:
+    - name: Create ansible-deploy service account
+      ansible.builtin.user:
+        name: ansible-deploy
+        shell: /bin/bash
+        system: true
+        create_home: true
+
+    - name: Deploy admin SSH keys (exclusive -- removes any key not in admin_users)
+      ansible.posix.authorized_key:
+        user: ansible-deploy
+        key: "{{ admin_authorized_keys }}"
+        exclusive: true
+      # One task, all keys joined into a single multi-line string -- do
+      # NOT loop this with exclusive:true, each loop iteration would wipe
+      # out the previous iteration's key and only the last admin in the
+      # list would end up with access.
+
+    - name: Install deployment helper script
+      ansible.builtin.copy:
+        dest: /usr/local/bin/deploy-pihole-tls.sh
+        owner: root
+        group: root
+        mode: '0750'
+        content: |
+          #!/usr/bin/env bash
+          set -euo pipefail
+          if [ ! -f /tmp/tls.pem ]; then
+              echo "Error: /tmp/tls.pem does not exist." >&2
+              exit 1
+          fi
+          /usr/bin/cp /tmp/tls.pem /etc/pihole/tls.pem
+          /usr/bin/chown pihole:pihole /etc/pihole/tls.pem
+          /usr/bin/chmod 0600 /etc/pihole/tls.pem
+          /usr/bin/rm -f /tmp/tls.pem
+          /usr/bin/pihole-FTL --config webserver.tls.cert "/etc/pihole/tls.pem"
+          /usr/bin/pihole-FTL --config webserver.port "80o,443os,[::]:80o,[::]:443os"
+          /usr/bin/systemctl restart pihole-FTL
+
+    - name: Install granular sudoers rule
+      ansible.builtin.copy:
+        dest: /etc/sudoers.d/99-ansible-pihole-ssl
+        owner: root
+        group: root
+        mode: '0440'
+        validate: 'visudo -cf %s'
+        content: "ansible-deploy ALL=(root) NOPASSWD: /usr/local/bin/deploy-pihole-tls.sh\n"

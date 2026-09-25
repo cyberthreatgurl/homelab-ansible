@@ -1,0 +1,15 @@
+# Ignore local vault password keys
+.vault_pass
+*vault.yml
+vault.yml
+
+# Environment and temporary files
+.kube/
+/tmp/
+*.crt
+*.key
+*.pem
+*~
+.venv/
+venv/
+*.log

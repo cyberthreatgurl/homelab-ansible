@@ -1,0 +1,16 @@
+---
+# Global Home Lab Variables
+kubeconfig_path: "~/.kube/config"
+ca_namespace: "default"
+
+# Declarative list of admins authorized on the ansible-deploy service
+# account across managed hosts. The bootstrap playbooks run
+# authorized_key with exclusive: true against this list -- add or remove
+# an entry here to grant or revoke SSH access. Don't edit a host's
+# authorized_keys by hand, it'll get overwritten on the next run.
+# Public keys are not secrets -- fine to commit in cleartext.
+admin_users:
+  - name: kelly
+    key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGQn9dfgssgrR6bHs8szmMr6igZ9BaqGKoedhQ4nqCaJ kelly@dev"
+  # - name: someone_else
+  #   key: "ssh-ed25519 AAAA... someone@host"

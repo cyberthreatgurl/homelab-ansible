@@ -1,0 +1,118 @@
+---
+- name: Deploy step-ca on Kubernetes
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    ca_name: "Shaw Lannix Private CA"
+    dns_names: "step-ca.default.svc.cluster.local.home.arpa"
+    ca_password: !vault |
+          $ANSIBLE_VAULT;1.2;AES256;V5RXy%vU^KYyiMDi
+          64663236663166636130383134623637363830663836323233336636393363333864386339356666
+          3565653564393064363961633137316164303164366538390a343937323263636162616261336438
+          64316338663930373061393666663933643731646264333839373062623833653538636333373338
+          6561636235333866660a653265653263356665633233353636666261636261633437663034656232
+          6664
+    # Standardize AWX environment variables and force ignore local TLS validation
+    k8s_host: "{{ lookup('env', 'K8S_AUTH_HOST') | default(lookup('env', 'KUBERNETES_MASTER') | default(omit)) }}"
+    k8s_token: "{{ lookup('env', 'K8S_AUTH_API_KEY') | default(lookup('env', 'KUBERNETES_TOKEN') | default(omit)) }}"
+    k8s_validate_certs: false
+
+  tasks:
+    - name: Create step-ca configuration Namespace
+      kubernetes.core.k8s:
+        host: "{{ k8s_host }}"
+        api_key: "{{ k8s_token }}"
+        validate_certs: "{{ k8s_validate_certs }}"
+        definition:
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: step-ca
+
+    - name: Create step-ca Password Secret
+      kubernetes.core.k8s:
+        host: "{{ k8s_host }}"
+        api_key: "{{ k8s_token }}"
+        validate_certs: "{{ k8s_validate_certs }}"
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: step-ca-password
+            namespace: step-ca
+          type: Opaque
+          stringData:
+            password: "{{ ca_password }}"
+
+    - name: Deploy step-ca Application
+      kubernetes.core.k8s:
+        host: "{{ k8s_host }}"
+        api_key: "{{ k8s_token }}"
+        validate_certs: "{{ k8s_validate_certs }}"
+        definition:
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: step-ca
+            namespace: step-ca
+            labels:
+              app: step-ca
+          spec:
+            replicas: 1
+            strategy:
+              type: Recreate
+            selector:
+              matchLabels:
+                app: step-ca
+            template:
+              metadata:
+                labels:
+                  app: step-ca
+              spec:
+                containers:
+                  - name: step-ca
+                    image: smallstep/step-ca:latest
+                    ports:
+                      - containerPort: 9000
+                    env:
+                      # 🚀 Native port binding configuration
+                      - name: STEPCA_INIT_ADDRESS
+                        value: ":9000"
+                      - name: DOCKER_STEPCA_INIT_REMOTE_MANAGEMENT
+                        value: "true"
+                      - name: DOCKER_STEPCA_INIT_NAME
+                        value: "{{ ca_name }}"
+                      - name: DOCKER_STEPCA_INIT_DNS_NAMES
+                        value: "{{ dns_names }}"
+                      - name: DOCKER_STEPCA_INIT_PROVISIONER_NAME
+                        value: "admin@home.arpa"
+                      - name: DOCKER_STEPCA_INIT_PASSWORD
+                        valueFrom:
+                          secretKeyRef:
+                            name: step-ca-password
+                            key: password
+                      - name: STEP_PASSWORD
+                        valueFrom:
+                          secretKeyRef:
+                            name: step-ca-password
+                            key: password
+
+    - name: Create step-ca Network Service
+      kubernetes.core.k8s:
+        host: "{{ k8s_host }}"
+        api_key: "{{ k8s_token }}"
+        validate_certs: "{{ k8s_validate_certs }}"
+        definition:
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: step-ca
+            namespace: step-ca
+          spec:
+            ports:
+              - port: 9000
+                targetPort: 9000
+            selector:
+              app: step-ca

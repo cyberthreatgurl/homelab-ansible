@@ -1,0 +1,60 @@
+---
+- name: Generate Pi-hole TLS Certificate via Step-CA
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    ca_url: "https://step-ca.default.svc.cluster.local.home.arpa"
+    root_ca_path: "/home/kelly/certAuth/certs/root_ca.crt"
+    ca_password: !vault |
+          $ANSIBLE_VAULT;1.2;AES256;V5RXy%vU^KYyiMDi
+          64663236663166636130383134623637363830663836323233336636393363333864386339356666
+          3565653564393064363961633137316164303164366538390a343937323263636162616261336438
+          64316338663930373061393666663933643731646264333839373062623833653538636333373338
+          6561636235333866660a653265653263356665633233353636666261636261633437663034656232
+          6664
+
+  tasks:
+    - name: Generate Pi-hole certificate and key via Step CLI
+      ansible.builtin.shell:
+        cmd: >
+          echo "{{ ca_password }}" | /usr/bin/step ca certificate "pi.hole" /tmp/pihole.crt /tmp/pihole.key
+          --ca-url {{ ca_url }}
+          --root {{ root_ca_path }}
+          --san pihole.home.arpa
+          --san ns.home.arpa
+          --san 10.0.0.13
+          --password-file -
+          --force
+        executable: /bin/bash
+      no_log: true
+      changed_when: true
+
+    - name: Combine certificate and private key (Civetweb / FTL format)
+      ansible.builtin.shell:
+        cmd: cat /tmp/pihole.crt /tmp/pihole.key > /tmp/tls.pem
+      changed_when: true
+
+    - name: Clean up temporary certificate components on runner
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /tmp/pihole.crt
+        - /tmp/pihole.key
+
+- name: Deploy Certificate and Reload Pi-hole FTL Webserver
+  hosts: pihole_servers
+  gather_facts: false
+  tasks:
+    - name: Stage combined TLS certificate into /tmp
+      ansible.builtin.copy:
+        src: /tmp/tls.pem
+        dest: /tmp/tls.pem
+        mode: '0600'
+
+    - name: Run root deployment helper script
+      ansible.builtin.command:
+        cmd: sudo /usr/local/bin/deploy-pihole-tls.sh
+      become: false
+      changed_when: true
